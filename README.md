@@ -14,11 +14,11 @@ plus the documented test case suite those journeys were derived from.
 | 2   | **Automation framework + demo scripts**                       | this repository — see _Framework structure_ below                                                                   |
 | 3   | **Documentation** — structure, rationale, run steps           | this README, plus [`docs/api-contract.md`](docs/api-contract.md) and [`docs/findings.md`](docs/findings.md)         |
 
-![Playwright HTML report — 33 tests, all passing](docs/images/report-overview.png)
+![Playwright HTML report — the 58-test Chromium suite, all passing](docs/images/report-overview.png)
 
-_The Chromium suite, captured from a real run in the Playwright container.
-Tags are visible on every test, so `--grep @smoke` and the CI matrix are
-self-evident. Regenerate with `npm run report:images`._
+_The Chromium suite — 58 UI tests — captured from a real run in the Playwright
+container. Tags are visible on every test, so `--grep @smoke` and the CI matrix
+are self-evident. Regenerate with `npm run report:images`._
 
 ---
 
@@ -228,7 +228,7 @@ through the browser.
 **Why:** setup performed by clicking is the largest source of both runtime and
 flake in most suites. A checkout test should fail because checkout is broken — not
 because a product page was slow. The UI is still covered end to end: `add-to-cart.spec.ts`
-drives the add path through the browser, once, deliberately .
+drives the add path through the browser, once, deliberately.
 
 ### Native dialogs owned by a persistent watcher
 
@@ -279,13 +279,14 @@ not. Both cross-browser runs below were verified this way.
 
 **Enforced by design:**
 
-| Rule                                                                      | Why                                                                                                                              |
-| ------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| Web-first assertions (`toHaveText`, `toHaveCount`) over read-then-compare | They retry until the value settles; a bare read captures whatever happened to be there                                           |
-| Every page defines `expectLoaded()` against a real DOM anchor             | The catalogue renders client-side, so `goto()` resolving proves nothing                                                          |
-| Cart navigation waits for the `/viewcart` response                        | Otherwise "cart is empty" also passes on a page that has not fetched yet — an assertion that cannot fail                         |
-| Wait on a widget's own readiness signal                                   | SweetAlert ignores clicks until it adds a `visible` class 500 ms after opening; the fix is to wait for that class, never a sleep |
-| Assert the state that implies a navigation completed                      | The app hides the login modal and immediately reloads; asserting the welcome label first removes the race                        |
+| Rule                                                                      | Why                                                                                                                                                                                                                                                                                                                                       |
+| ------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Web-first assertions (`toHaveText`, `toHaveCount`) over read-then-compare | They retry until the value settles; a bare read captures whatever happened to be there                                                                                                                                                                                                                                                    |
+| Every page defines `expectLoaded()` against a real DOM anchor             | The catalogue renders client-side, so `goto()` resolving proves nothing                                                                                                                                                                                                                                                                   |
+| Cart navigation waits for the `/viewcart` response                        | Otherwise "cart is empty" also passes on a page that has not fetched yet — an assertion that cannot fail                                                                                                                                                                                                                                  |
+| Wait on a widget's own readiness signal                                   | Two separate instances: SweetAlert ignores clicks until it adds a `visible` class ~500 ms after opening, and Bootstrap's `hide()` returns early while `_isTransitioning` is set, so a Close click mid-fade is swallowed. Both are fixed by waiting on the widget's own state — the class, and focus landing on the dialog — never a sleep |
+| Never assert on state the suite does not own                              | DemoBlaze is a public sandbox: `admin`, `test`, `' OR '1'='1` and `<script>alert(1)</script>` are all already registered by other testers, so "User does not exist." is not a stable oracle. Payload tests assert the security property instead                                                                                           |
+| Assert the state that implies a navigation completed                      | The app hides the login modal and immediately reloads; asserting the welcome label first removes the race                                                                                                                                                                                                                                 |
 
 Five of the six entries above are bugs that were found and fixed **in this
 framework** while stabilising it across Chromium, Firefox and WebKit. Each one is
@@ -348,13 +349,20 @@ so a failure can be reproduced against the exact data that produced it._
 [`.github/workflows/e2e.yml`](.github/workflows/e2e.yml). The pipeline shape
 mirrors the cost of each signal:
 
-| Job           | Runs on          | Duration | Why there                                                                                                                   |
-| ------------- | ---------------- | -------- | --------------------------------------------------------------------------------------------------------------------------- |
-| `verify`      | every push/PR    | seconds  | Format, lint, types. Nothing else runs if this fails                                                                        |
-| `api`         | every push/PR    | ~1 min   | No browser download, no browser launch — cheap enough to gate everything                                                    |
-| `ui`          | every push/PR    | minutes  | 3 browsers × 2 shards in parallel; blob reports merged afterwards                                                           |
-| `report`      | after `ui`       | ~1 min   | Merges shards into one HTML report artifact                                                                                 |
-| `performance` | nightly + manual | ~5 min   | Timing assertions on a contended PR runner measure the runner, not the app — so they run on a schedule with relaxed budgets |
+| Job           | Runs on                         | Duration | Why there                                                                                                         |
+| ------------- | ------------------------------- | -------- | ----------------------------------------------------------------------------------------------------------------- |
+| `verify`      | every push/PR                   | seconds  | Format, lint, types. Nothing else runs if this fails                                                              |
+| `api`         | every push/PR                   | ~1 min   | No browser download, no browser launch — cheap enough to gate everything                                          |
+| `ui`          | every push/PR                   | minutes  | 3 browsers × 2 shards in parallel; blob reports merged afterwards                                                 |
+| `report`      | after `ui`                      | ~1 min   | Merges shards into one HTML report artifact                                                                       |
+| `performance` | on demand (`workflow_dispatch`) | ~5 min   | Timing assertions on a contended PR runner measure the runner, not the app, so they are never part of the PR gate |
+
+**Why there is no nightly cron.** A scheduled run against a third-party public
+demo site fails whenever that site is down, and the status badge shows the most
+recent run — so an outage nobody caused would paint this repository red. A green
+badge has to mean "the last change was good" or it means nothing, so the
+performance job is triggered manually instead. In a codebase whose environment we
+controlled, a nightly run would earn its place.
 
 Portable by construction: it is `npx playwright test` plus environment variables.
 The same commands run unchanged under Jenkins, GitLab CI or locally.
@@ -379,26 +387,9 @@ Playwright produces numbers nobody should trust. The boundary is deliberate.
 
 ---
 
-## AI-assisted workflow
-
-How AI is actually used on this codebase, and where it is not trusted:
-
-| Stage           | Use                                                                                                            | Guardrail                                                                                                                                            |
-| --------------- | -------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Exploration** | Derive the real API contract and the app's client JS behaviour before writing a line of test code              | Every claim verified against the live service — `docs/api-contract.md` is observed, not assumed                                                      |
-| **Generation**  | Draft page objects and edge-case matrices from the app's own markup and JS                                     | Generated code is reviewed against the layering rule; nothing merges that a human would not have written                                             |
-| **Triage**      | Failure context (`error-context.md`, traces, DOM snapshots) is machine-readable and used to isolate root cause | A fix is only accepted once the _mechanism_ is understood — see the SweetAlert `visible` class finding, which a naive assistant "fixes" with a sleep |
-| **Maintenance** | Selector and assertion updates proposed from diffs                                                             | Locator strategy is policy: role/text over ids the app duplicates                                                                                    |
-
-The standard the team is held to: **AI accelerates understanding; it does not
-replace it.** Every generated wait must name the signal it waits for. "It passes
-now" is not a review comment.
-
----
-
 ## What this suite found
 
-**15 defects** in the application under test — 9 pinned by an executable check, the
+**18 defects** in the application under test — 13 pinned by an executable check, the
 rest by documented manual cases. The ones that would matter in production:
 
 |             |                                                                                                                             |
