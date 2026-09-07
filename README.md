@@ -228,7 +228,7 @@ through the browser.
 **Why:** setup performed by clicking is the largest source of both runtime and
 flake in most suites. A checkout test should fail because checkout is broken — not
 because a product page was slow. The UI is still covered end to end: `add-to-cart.spec.ts`
-drives the add path through the browser, once, deliberately.
+drives the add path through the browser, once, deliberately .
 
 ### Native dialogs owned by a persistent watcher
 
